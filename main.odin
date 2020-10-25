@@ -39,7 +39,7 @@ new_list_node :: proc(list: ..Node) -> Node {
 }
 
 
-
+//builtin procedures
 proc_add :: proc(nodes: []Node) -> Node {
   return new_int_node(eval(nodes[0]).val + eval(nodes[1]).val);
 }
@@ -67,7 +67,7 @@ global_env := map[string] (proc([]Node) -> Node){
 eval :: proc(node: Node) -> Node {
   #partial switch node.kind  {
     case .SYMBOL:
-      assert(false);
+      assert(false, "Don't evaluate symbols yet");
     case .NUMBER:
       return node;
     case .LIST:
@@ -77,10 +77,10 @@ eval :: proc(node: Node) -> Node {
           return f(node.list[1:]);
         } else {
           //not in the env, then throw a fit
-          assert(false);
+          assert(false, "Node not in environment");
         }
       } else {
-        assert(false);
+        assert(false, "first node is not a symbol");
       }
   }
   return {};
@@ -115,14 +115,27 @@ node_equal :: proc(lhs, rhs: Node) -> bool {
 
 
 
-test :: proc(code: string, expected: Node) {
+test_eval_line :: proc(code: string, expected: Node) {
   l: Lexer;
   init_lexer(&l, code);
   node := parse(&l);
   res := eval(node);
 
-  assert(node_equal(res, expected));
+  assert(node_equal(res, expected), "Test failed.  Nodes are not equal.");
 }
+
+
+
+
+test :: proc() {
+  test_eval_line("1", Node{kind = .NUMBER, val = 1});
+  test_eval_line("( + 1 2)", Node{kind = .NUMBER, val = 3});
+  test_eval_line("(* 2 3)", Node{kind = .NUMBER, val = 6});
+  test_eval_line("( + 0 ( * 2 3 ) )", Node{kind = .NUMBER, val = 6});
+  test_eval_line("( + 1 ( * 2 3 ) )", Node{kind = .NUMBER, val = 7});
+  test_eval_line("(+ (* 4 8) (* 20 10))", Node{kind = .NUMBER, val = 232});
+}
+
 
 
 
@@ -139,12 +152,9 @@ main :: proc() {
   // fmt.println(node);
   // fmt.println(eval(node));
 
-  test("1", Node{kind = .NUMBER, val = 1});
-  test("( + 1 2)", Node{kind = .NUMBER, val = 3});
-  test("(* 2 3)", Node{kind = .NUMBER, val = 6});
-  test("( + 0 ( * 2 3 ) )", Node{kind = .NUMBER, val = 6});
-  test("( + 1 ( * 2 3 ) )", Node{kind = .NUMBER, val = 7});
 
 
- // fmt.println(type_of(proc_add));
+
+  // fmt.println(type_of(proc_add));
+  test();
 }

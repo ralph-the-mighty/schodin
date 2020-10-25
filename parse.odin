@@ -6,9 +6,6 @@ import "core:fmt";
 
 
 
-
-
-
 Token :: enum {
   RPAREN,
   LPAREN,
@@ -58,7 +55,7 @@ is_whitespace :: inline proc(char: byte) ->bool {
 parse_int :: proc(using l: ^Lexer) -> int {
   val: int;
 
-  for is_digit(code[cursor]) {
+  for cursor < len(code) && is_digit(code[cursor]) {
     val *= 10;
     val += int(code[cursor] - '0');
     cursor += 1;
@@ -69,7 +66,7 @@ parse_int :: proc(using l: ^Lexer) -> int {
 
 parse_sym :: proc(using l: ^Lexer) -> string {
   start := cursor;
-  for is_sym_char(code[cursor]) {
+  for cursor < len(code) && is_sym_char(code[cursor]) {
     cursor += 1;
   }
   return string(code[start:cursor]);
@@ -77,7 +74,6 @@ parse_sym :: proc(using l: ^Lexer) -> string {
 
 
 next_token :: proc(using l: ^Lexer) {
-  
   
   for cursor + 1 < len(code) && is_whitespace(code[cursor]) {
     cursor += 1;
@@ -95,8 +91,6 @@ next_token :: proc(using l: ^Lexer) {
     case 'a'..'z', 'A'..'Z', '_', '+', '-', '*', '/': token = .SYM; sym_val = parse_sym(l);
     case :                                            token = .ERROR; cursor += 1;
   }
-  
-  return;
 }
 
 
