@@ -85,11 +85,16 @@ next_token :: proc(using l: ^Lexer) {
   }
 
   switch code[cursor] {
-    case '(':                                         token = .LPAREN; cursor += 1;
-    case ')':                                         token = .RPAREN; cursor += 1;
-    case '0'..'9':                                    token = .NUM; int_val = parse_int(l);
-    case 'a'..'z', 'A'..'Z', '_', '+', '-', '*', '/': token = .SYM; sym_val = parse_sym(l);
-    case :                                            token = .ERROR; cursor += 1;
+    case '(':      token = .LPAREN; cursor += 1;
+    case ')':      token = .RPAREN; cursor += 1;
+    case '0'..'9': token = .NUM; int_val = parse_int(l);
+    case:
+      if is_sym_char(code[cursor]) {
+        token = .SYM; sym_val = parse_sym(l);
+      } else {
+        token = .ERROR; 
+        cursor += 1;
+      }
   }
 }
 

@@ -18,6 +18,7 @@ Node :: struct {
   list: [dynamic]Node,
   sym: string,
   val: int,
+  procedure: (proc([]Node) -> Node),
   source_pos: int
 };
 
@@ -39,6 +40,13 @@ new_list_node :: proc(list: ..Node) -> Node {
 }
 
 
+
+true_sym  :: Node{kind=.SYMBOL, sym="#t"};
+false_sym :: Node{kind=.SYMBOL, sym="#f"};
+
+
+
+
 //builtin procedures
 proc_add :: proc(nodes: []Node) -> Node {
   return new_int_node(eval(nodes[0]).val + eval(nodes[1]).val);
@@ -56,12 +64,30 @@ proc_div :: proc(nodes: []Node) -> Node {
   return new_int_node(eval(nodes[0]).val / eval(nodes[1]).val);
 }
 
-global_env := map[string] (proc([]Node) -> Node){
-  "+" = proc_add,
-  "-" = proc_sub,
-  "*" = proc_mul,
-  "/" = proc_div
+proc_gt :: proc(nodes: []Node) -> Node {
+  return eval(nodes[0]).val > eval(nodes[1]).val ? true_sym : false_sym;
+}
+
+proc_lt :: proc(nodes: []Node) -> Node {
+  return eval(nodes[0]).val < eval(nodes[1]).val ? true_sym : false_sym;
+}
+
+proc_eq :: proc(nodes: []Node) -> Node {
+  return eval(nodes[0]).val == eval(nodes[1]).val ? true_sym : false_sym;
+}
+
+global_env := map[string]Node {
+  "+" = Node{kind=.PROC, procedure=proc_add},
+  "-" = Node{kind=.PROC, procedure=proc_sub},
+  "*" = Node{kind=.PROC, procedure=proc_mul},
+  "/" = Node{kind=.PROC, procedure=proc_div},
+  ">" = Node{kind=.PROC, procedure=proc_gt},
+  "<" = Node{kind=.PROC, procedure=proc_lt},
+  "=" = Node{kind=.PROC, procedure=proc_eq},
 };
+
+
+
 
 
 eval :: proc(node: Node) -> Node {
@@ -71,16 +97,34 @@ eval :: proc(node: Node) -> Node {
     case .NUMBER:
       return node;
     case .LIST:
-      if node.list[0].kind == .SYMBOL {
-        f, ok := global_env[node.list[0].sym]; //TODO check actual local env
-        if ok {
-          return f(node.list[1:]);
+      head := node.list[0];
+      tail := node.list[1:];
+      if head.kind == .SYMBOL {
+        if head.sym == "if" {
+          // (if (> 1 2) 3 4)
+          test := eval(node.list[1]);
+          if(test.kind == .SYMBOL && test.sym == "#f") {
+            return eval(node.list[3]);
+          } else {
+            return eval(node.list[2]);
+          }
+        } else if head.sym == "define" {
+          //do define stuff
+          assert(false, "We haven't defined define yet");
         } else {
-          //not in the env, then throw a fit
-          assert(false, "Node not in environment");
+          //sym table lookup
+          proc_node, ok := global_env[head.sym]; //TODO check actual local env
+          if ok {
+            //TODO: evaluate all the arguments first, then pass them to the proc
+            return proc_node.procedure(tail);
+          } else {
+            //not in the env, then throw a fit
+            fmt.printf("%i, Symbol %s is not defined\n", head.source_pos, head.sym);
+            assert(false, "Symbol not defined");
+          }
         }
       } else {
-        assert(false, "first node is not a symbol");
+        assert(false, "first node of list is not a symbol, cannot evaluate");
       }
   }
   return {};
@@ -115,25 +159,36 @@ node_equal :: proc(lhs, rhs: Node) -> bool {
 
 
 
-test_eval_line :: proc(code: string, expected: Node) {
-  l: Lexer;
-  init_lexer(&l, code);
-  node := parse(&l);
-  res := eval(node);
-
-  assert(node_equal(res, expected), "Test failed.  Nodes are not equal.");
-}
-
-
-
 
 test :: proc() {
-  test_eval_line("1", Node{kind = .NUMBER, val = 1});
-  test_eval_line("( + 1 2)", Node{kind = .NUMBER, val = 3});
-  test_eval_line("(* 2 3)", Node{kind = .NUMBER, val = 6});
-  test_eval_line("( + 0 ( * 2 3 ) )", Node{kind = .NUMBER, val = 6});
-  test_eval_line("( + 1 ( * 2 3 ) )", Node{kind = .NUMBER, val = 7});
-  test_eval_line("(+ (* 4 8) (* 20 10))", Node{kind = .NUMBER, val = 232});
+
+  test_eval_line :: proc(code: string, expected: Node) {
+    l: Lexer;
+    init_lexer(&l, code);
+    node := parse(&l);
+    res := eval(node);
+
+    assert(node_equal(res, expected), "Test failed.  Nodes are not equal.");
+  }
+
+  Num :: proc(n: int) -> Node { return Node{kind=.NUMBER, val=n}};
+
+
+  test_eval_line("1", Num(1));
+  test_eval_line("12345", Num(12345));
+  test_eval_line("( + 1 2)", Num(3));
+  test_eval_line("(* 2 3)", Num(6));
+  test_eval_line("( + 0 ( * 2 3 ) )",  Num(6));
+  test_eval_line("( + 1 ( * 2 3 ) )", Num(7));
+  test_eval_line("(+ (* 4 8) (* 20 10))", Num(232));
+  test_eval_line("(if (= 1 1) 1 0)", Num(1));
+  test_eval_line("(if (= 1 0) 1 0)", Num(0));
+  test_eval_line("(if (> 5 5) 1 0)", Num(0));
+  test_eval_line("(if (> 5 3) 1 0)", Num(1));
+  test_eval_line("(if (> 5 9) 1 0)", Num(0));
+  test_eval_line("(if (< 1 1) 1 0)", Num(0));
+  test_eval_line("(if (< 5 0) 1 0)", Num(0));
+  test_eval_line("(if (< 5 9) 1 0)", Num(1));
 }
 
 
