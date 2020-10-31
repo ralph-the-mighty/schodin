@@ -26,6 +26,7 @@ Lexer :: struct {
   token : Token,
   sym_val : string,
   int_val : int,
+  error: bool,
 };
 
 init_lexer :: proc(using l: ^Lexer, source: string) {
@@ -40,7 +41,8 @@ is_digit :: proc(char: byte) -> bool {
 }
 
 is_sym_char :: inline proc(char: byte) -> bool {
-  return char >= 33 && char <= 126;
+  return (char >= 33 && char <= 39)  || 
+         (char >= 42 && char <= 126);
 }
 
 is_whitespace :: inline proc(char: byte) ->bool {
@@ -105,6 +107,11 @@ init_node :: proc(n: ^Node, kind: NodeType, using l: ^Lexer){
 }
 
 
+parse_err :: proc (l: ^Lexer, err_fmt: string, args: ..any) {
+  l.error = true;
+  fmt.printf(err_fmt, args);
+}
+
 
 parse :: proc(using l: ^Lexer) -> Node {
   node := Node{source_pos = cursor};
@@ -119,13 +126,13 @@ parse :: proc(using l: ^Lexer) -> Node {
         next_token(l);
       } else {
         assert(token == .EOF);
-        fmt.printf("'(' at pos % does not have a matching ')'!", node.source_pos);
+        parse_err(l, "'(' at pos %d does not have a matching ')'!\n", node.source_pos);
         return Node{kind = .ERROR, source_pos = node.source_pos};
       }
 
     case .RPAREN:
       fmt.println(token);
-      fmt.println("We did not expect this token type here");
+      parse_err(l, "We did not expect a ')' here");
 
     case .NUM:
       node.kind = .NUMBER;
