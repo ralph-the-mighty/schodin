@@ -21,7 +21,11 @@ Node :: struct {
   sym: string,
   val: int,
   procedure: (proc([]Node) -> Node),
-  source_pos: int
+  source_pos: int,
+
+  //lambda fields
+  args: [dynamic]Node,
+  body: [dynamic]Node,
 };
 
 
@@ -31,6 +35,10 @@ new_int_node :: proc(val: int) -> Node {
 
 new_sym_node :: proc(sym: string) -> Node {
   return Node{kind=.SYMBOL, sym=sym};
+}
+
+new_lambda_node :: proc(args, body: Node) -> Node {
+  return Node{kind=.LAMBDA, args=args.list, body=body.list};
 }
 
 new_list_node :: proc(list: ..Node) -> Node {
@@ -149,22 +157,40 @@ eval :: proc(env: ^Env, node: Node) -> Node {
           }
           return ret_node;
         } else if head.sym == "lambda" {
-          assert(false, "we do not handle lambda yet");
+          return new_lambda_node(tail[0], tail[1]);
         } else {
           //sym table lookup
+          assert(head.kind == .SYMBOL, "first node in list must be special form or a sym");
           proc_node := lookup(env, head.sym); //TODO check actual local env
-          //TODO: evaluate all the arguments first, then pass them to the proc
+          assert(proc_node.kind == .PROC || proc_node.kind == .LAMBDA, "first item in list must eval to a builtin proc or a lambda");
+
+          //evaluate all the arguments first, then pass them to the proc
           evaluated_args : [dynamic]Node;
           for arg in tail {
             append_elem(&evaluated_args, eval(env, arg));
           }
-          return proc_node.procedure(evaluated_args[:]);
+
+          if proc_node.kind == .PROC {
+            return proc_node.procedure(evaluated_args[:]);
+          } else {
+            assert(proc_node.kind == .LAMBDA);
+            lambda_env := new_env(env);
+            for arg_name_node, i in proc_node.args {
+              insert(&lambda_env, arg_name_node.sym, evaluated_args[i]); 
+            }
+            return eval(&lambda_env, Node{kind=.LIST, list=proc_node.body}); //HORRIBLE HACK. SWITCH TO POINTERS OR SOMETHING TO STORE PROC ARGS AND BODY
+          }
+
         }
       } else {
+        //time to eval
         assert(false, "first node of list is not a symbol, cannot evaluate");
       }
     case .LAMBDA:
-      assert(false, "do not evaluate a lambda");
+      assert(false, "lambda's can't be evaluated");
+    case .PROC:
+      assert(false, "procs can't be evaluated");
+
   }
   return {};
 }
@@ -253,7 +279,10 @@ test :: proc() {
   test_eval_line("(begin (define x 4) (define y (+ x 7)) (* 7 y))", Num(77));
   test_eval_line("(begin (define x 4) (define y 5) (+ x y))", Num(9));
   test_eval_line("(begin (define x 2) (begin (define x 5) x))", Num(5));
-  test_eval_line("(begin (define x 2) (begin (define x 5) x) x)", Num(2));
+  test_eval_line("(begin (define x 2) (begin (define x 5) x) x)", Num(5));
+
+
+  test_eval_line("(begin (define add1 (lambda (x) (+ x 1)))     (add1 2)   )", Num(3));
 
 
 }
