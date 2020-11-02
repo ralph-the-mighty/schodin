@@ -26,6 +26,7 @@ Node :: struct {
   //lambda fields
   args: [dynamic]Node,
   body: [dynamic]Node,
+  env: Env,
 };
 
 
@@ -37,8 +38,8 @@ new_sym_node :: proc(sym: string) -> Node {
   return Node{kind=.SYMBOL, sym=sym};
 }
 
-new_lambda_node :: proc(args, body: Node) -> Node {
-  return Node{kind=.LAMBDA, args=args.list, body=body.list};
+new_lambda_node :: proc(env: Env, args, body: Node) -> Node {
+  return Node{kind=.LAMBDA, env=env, args=args.list, body=body.list};
 }
 
 new_list_node :: proc(list: ..Node) -> Node {
@@ -47,6 +48,10 @@ new_list_node :: proc(list: ..Node) -> Node {
     append_elem(&node.list, n);
   }
   return node;
+}
+
+err_node :: proc (node: Node) -> Node {
+  return Node{kind=.ERROR, source_pos = node.source_pos};
 }
 
 
@@ -120,10 +125,52 @@ lookup :: proc(env: ^Env, sym: string) -> Node {
     if env.outer != nil {
       return lookup(env.outer, sym);
     } else {
-      fmt.printf("Symbol '%s' does not exist in the environment\n");
+      fmt.printf("Symbol '%s' does not exist in the environment\n", sym);
       os.exit(1);
     }
   }
+}
+
+
+
+
+
+print_node :: proc(node: Node) {
+  switch node.kind {
+    case .SYMBOL:
+      fmt.printf("<SYMBOL: %s>", node.sym);
+    case .NUMBER:
+      fmt.printf("<NUMBER: %d>", node.val);
+    case .LIST:
+      fmt.print("<LIST: [");
+      for n in node.list {
+        print_node(n);
+        fmt.print(", ");
+      }
+      fmt.print("]>");
+    case .PROC:
+      fmt.printf("<PROC>");
+    case .LAMBDA:
+      fmt.printf("<LAMBDA: (");
+      for arg_node in node.args {
+        fmt.printf("%s, ", arg_node.sym);
+      }
+      fmt.printf(")>");
+    case .ERROR:
+      fmt.printf("<ERROR>");
+  }
+}
+
+print_env :: proc(env: ^Env) {
+  for key, value in env._map {
+    fmt.printf("%s -> ", key);
+    print_node(value);
+    fmt.println();
+  }
+  if env.outer != nil {
+    print_env(env.outer);
+  }
+
 }
 
 
@@ -149,7 +196,9 @@ eval :: proc(env: ^Env, node: Node) -> Node {
             return eval(env, node.list[2]);
           }
         } else if head.sym == "define" {  //(define x 4)
-          insert(env, tail[0].sym, eval(env, tail[1]));
+          arg := eval(env, tail[1]);
+          insert(env, tail[0].sym, arg);
+          return arg;
         } else if head.sym == "begin" { //(begin (define x 4) x)
           ret_node : Node;
           for n in tail {
@@ -157,34 +206,48 @@ eval :: proc(env: ^Env, node: Node) -> Node {
           }
           return ret_node;
         } else if head.sym == "lambda" {
-          return new_lambda_node(tail[0], tail[1]);
-        } else {
-          //sym table lookup
-          assert(head.kind == .SYMBOL, "first node in list must be special form or a sym");
-          proc_node := lookup(env, head.sym); //TODO check actual local env
-          assert(proc_node.kind == .PROC || proc_node.kind == .LAMBDA, "first item in list must eval to a builtin proc or a lambda");
-
-          //evaluate all the arguments first, then pass them to the proc
-          evaluated_args : [dynamic]Node;
-          for arg in tail {
-            append_elem(&evaluated_args, eval(env, arg));
-          }
-
-          if proc_node.kind == .PROC {
-            return proc_node.procedure(evaluated_args[:]);
-          } else {
-            assert(proc_node.kind == .LAMBDA);
-            lambda_env := new_env(env);
-            for arg_name_node, i in proc_node.args {
-              insert(&lambda_env, arg_name_node.sym, evaluated_args[i]); 
-            }
-            return eval(&lambda_env, Node{kind=.LIST, list=proc_node.body}); //HORRIBLE HACK. SWITCH TO POINTERS OR SOMETHING TO STORE PROC ARGS AND BODY
-          }
-
+          return new_lambda_node(env^, tail[0], tail[1]);
         }
+      }
+      
+      //none of the other cases returned.  Time for evaluation!!
+
+      
+
+      proc_node := eval(env, head); //TODO check actual local env
+      assert(proc_node.kind == .PROC || proc_node.kind == .LAMBDA, "first item in list must eval to a builtin proc or a lambda");
+
+      //evaluate all the arguments first, then pass them to the proc
+      evaluated_args : [dynamic]Node;
+      for arg in tail {
+        append_elem(&evaluated_args, eval(env, arg));
+      }
+
+      if proc_node.kind == .PROC {
+        return proc_node.procedure(evaluated_args[:]);
       } else {
-        //time to eval
-        assert(false, "first node of list is not a symbol, cannot evaluate");
+        assert(proc_node.kind == .LAMBDA);
+
+        
+        // fmt.printf("Evaluating lambda ");
+        // print_node(node);
+        // fmt.printf(" in this environment:");
+        // print_env(env);
+
+
+        if len(tail) != len(proc_node.args) {
+          fmt.printf("error calling %s:\n",  head.sym);
+          fmt.printf("expected %d args, got %d\n", len(proc_node.args), len(tail));
+          assert(false);
+          return err_node(node);
+        }
+        lambda_env := new_env(&proc_node.env);
+
+
+        for arg_name_node, i in proc_node.args {
+          insert(&lambda_env, arg_name_node.sym, evaluated_args[i]); 
+        }
+        return eval(&lambda_env, Node{kind=.LIST, list=proc_node.body}); //HORRIBLE HACK. SWITCH TO POINTERS OR SOMETHING TO STORE PROC ARGS AND BODY
       }
     case .LAMBDA:
       assert(false, "lambda's can't be evaluated");
@@ -233,13 +296,13 @@ test :: proc() {
   }
 
 
-  test_eval_line :: proc(code: string, expected: Node) {
+  test_eval_line :: proc(source: string, expected: Node) {
     l: Lexer;
-    init_lexer(&l, code);
+    init_lexer(&l, source);
     node := parse(&l);
 
     if l.error {
-      fmt.printf("TEST FAILED: %s\ntest failed due to syntax error\n\n", code);
+      fmt.printf("TEST FAILED: %s\ntest failed due to syntax error\n\n", source);
       return;
     }
 
@@ -249,7 +312,7 @@ test :: proc() {
     res := eval(&env, node);
 
     if !node_equal(res, expected) {
-      fmt.printf("TEST FAILED: %s\nExpected %, got %\n\n", code, expected, res);
+      fmt.printf("TEST FAILED: %s\nExpected %, got %\n\n", source, expected, res);
       os.exit(1);
     }
   }
@@ -291,6 +354,32 @@ test :: proc() {
 
 
 
+load_and_run :: proc(path: string) -> (Node, bool) {
+  source, ok := os.read_entire_file(path);
+  if !ok {
+    fmt.printf("Could not load %s\n");
+    return {}, false;
+  }
+
+  l: Lexer;
+  init_lexer(&l, string(source));
+  node := parse(&l);
+
+  if l.error {
+    return {}, false;
+  }
+
+
+    env := new_env(nil);
+    init_default_env(&env);
+
+    return eval(&env, node), true;
+}
+
+
+
+
+
 main :: proc() {
 
   // l : Lexer;
@@ -307,5 +396,14 @@ main :: proc() {
 
 
   // fmt.println(type_of(proc_add));
-  test();
+  //test();
+
+  res, ok := load_and_run("test.scm");
+
+  if ok {
+    fmt.println(res);
+  } else {
+    fmt.println("NOT OKAY");
+  }
+
 }
